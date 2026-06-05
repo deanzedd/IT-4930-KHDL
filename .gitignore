@@ -1,0 +1,5 @@
+__pycache__/
+note.txt
+agent_run.log
+*.json
+output_*.csv
