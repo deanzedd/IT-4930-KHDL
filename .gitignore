@@ -3,3 +3,7 @@ note.txt
 agent_run.log
 *.json
 output_*.csv
+ITKHDL/
+hanoi_final.csv
+gianhahanoi.csv
+hanoi_final_filtered_features_complete.csv
