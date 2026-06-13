@@ -1,0 +1,77 @@
+==============================================================
+  BAO CAO LOC DU LIEU HOAN CHINH
+  Thoi gian tao : 2026-06-05 22:13:39
+==============================================================
+
+[NGUON DU LIEU]
+  File goc      : data/output_phase2_price_filtered.csv
+  File ket qua  : data/PROCESSED_FINAL.csv
+  File bao cao  : data/PROCESSED_FINAL_report.txt
+
+[TIEU CHI LOC]
+  Cac truong bat buoc (12):
+    - title
+    - description
+    - area
+    - district
+    - property_type
+    - bedrooms_detail
+    - bathrooms_detail
+    - floors
+    - price_billion
+    - width_m
+    - depth_m
+    - full_address
+
+[THONG KE SO LUONG]
+  Truoc khi loc :      4,784 ban ghi
+  Sau khi loc   :      4,784 ban ghi
+  Da loai bo    :          0 ban ghi (0.0% tong so)
+  Ti le giu lai : 100.0%
+
+[THONG KE GIA (ty dong)]
+  Nho nhat  : 1.00
+  Lon nhat  : 150.00
+  Trung binh: 17.99
+  Trung vi  : 14.00
+  Do lech TC: 16.75
+
+[THONG KE DIEN TICH (m2)]
+  Nho nhat  : 10
+  Lon nhat  : 2631
+  Trung binh: 67.1
+  Trung vi  : 55.0
+
+[THONG KE MAT TIEN (m)]
+  Nho nhat  : 1.0
+  Lon nhat  : 401.0
+  Trung binh: 9.00
+
+[PHAN BO THEO QUAN/HUYEN (top 10)]
+  Quận Hoàng Mai                  :   653  (13.6%)
+  Quận Đống Đa                    :   585  (12.2%)
+  Quận Long Biên                  :   559  (11.7%)
+  Quận Hai Bà Trưng               :   524  (11.0%)
+  Quận Cầu Giấy                   :   432  (9.0%)
+  Quận Hà Đông                    :   410  (8.6%)
+  Quận Thanh Xuân                 :   399  (8.3%)
+  Quận Ba Đình                    :   241  (5.0%)
+  Quận Tây Hồ                     :   230  (4.8%)
+  Quận Nam Từ Liêm                :   220  (4.6%)
+
+[PHAN LOAI BAT DONG SAN]
+  nha_pho                         : 3,274  (68.4%)
+  nha_mat_pho                     :   896  (18.7%)
+  biet_thu                        :   215  (4.5%)
+  chung_cu                        :   176  (3.7%)
+  nha                             :   123  (2.6%)
+  khac                            :    45  (0.9%)
+  can_ho                          :    44  (0.9%)
+  dat                             :    11  (0.2%)
+
+[THONG KE SO TANG]
+  Nho nhat  : 1
+  Lon nhat  : 110
+  Pho bien  : 5
+
+==============================================================

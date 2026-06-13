@@ -1,6 +1,6 @@
 # House Price Crawler 🏠
 
-Crawler BĐS Hà Nội từ 3 nguồn: **batdongsan.com.vn**, **nhatot.com**, **mogi.vn**  
+Crawler BĐS Hà Nội từ 5 nguồn: **batdongsan.com.vn**, **nhatot.com**, **mogi.vn**, **alonhadat.com.vn**, **chotot.com**  
 Lưu dữ liệu vào **MongoDB**.
 
 ## Cài đặt
@@ -13,7 +13,7 @@ pip install -r requirements.txt
 # Windows: https://www.mongodb.com/try/download/community
 # Ubuntu:  sudo apt install mongodb
 
-# 3. Config .env (sửa nếu cần)
+# 3. Tạo file .env (copy từ ví dụ dưới)
 # MONGO_URI=mongodb://localhost:27017
 # MONGO_DB=house_price_db
 # HEADLESS=true        ← false nếu muốn xem browser chạy
@@ -31,7 +31,7 @@ python main.py
 python main.py --sources batdongsan
 
 # Nhiều nguồn + tăng số trang
-python main.py --sources batdongsan nhatot --pages 10
+python main.py --sources nhatot chotot --pages 10
 ```
 
 ## Cấu trúc project
@@ -39,16 +39,20 @@ python main.py --sources batdongsan nhatot --pages 10
 ```
 house-price-crawler/
 ├── scrapers/
-│   ├── base.py           # Abstract base class
-│   ├── batdongsan.py     # Scraper batdongsan.com.vn
-│   ├── nhatot.py         # Scraper nhatot.com
-│   └── mogi.py           # Scraper mogi.vn
+│   ├── base.py           # Abstract base class (Selenium)
+│   ├── batdongsan.py     # Scraper batdongsan.com.vn (undetected-chromedriver)
+│   ├── mogi.py           # Scraper mogi.vn (Selenium)
+│   ├── alonhadat.py      # Scraper alonhadat.com.vn (requests + BS4)
+│   ├── nhatot.py         # Scraper nhatot.com (JSON API)
+│   └── chotot.py         # Scraper chotot.com (JSON API)
 ├── db/
-│   └── mongo.py          # Kết nối & lưu MongoDB
+│   ├── mongo.py          # Kết nối & lưu MongoDB
+│   ├── clean_db.py       # Xóa duplicate / dọn dữ liệu
+│   └── migrate_property_type.py
 ├── models/
-│   └── listing.py        # Schema + hàm parse giá/diện tích
+│   └── listing.py        # Schema + hàm parse giá/diện tích/địa chỉ
 ├── main.py               # Entry point
-├── .env                  # Config
+├── .env                  # Config (không commit)
 └── requirements.txt
 ```
 
@@ -58,7 +62,7 @@ Collection: `listings`
 
 | Field | Type | Mô tả |
 |---|---|---|
-| source | str | batdongsan / nhatot / mogi |
+| source | str | batdongsan / nhatot / mogi / alonhadat / chotot |
 | url | str | URL gốc (unique index) |
 | title | str | Tiêu đề tin đăng |
 | listing_type | str | "ban" hoặc "thue" |
@@ -67,16 +71,19 @@ Collection: `listings`
 | price_per_m2 | float | Giá/m² (VNĐ) |
 | area | float | Diện tích (m²) |
 | district | str | Quận/Huyện |
-| city | str | Hà Nội |
+| ward | str | Phường/Xã |
+| street | str | Tên đường/phố |
+| lat / lng | float | Tọa độ địa lý |
 | bedrooms | int | Số phòng ngủ |
 | bathrooms | int | Số WC |
-| crawled_at | datetime | Thời gian crawl |
+| floors | int | Số tầng |
+| facade | float | Mặt tiền (m) |
+| legal_status | str | Pháp lý (sổ đỏ, sổ hồng...) |
+| posted_at | str | Ngày đăng |
 
 ## Query MongoDB mẫu
 
 ```js
-// Xem trong MongoDB Compass hoặc mongosh
-
 // Tất cả nhà bán quận Hoàn Kiếm dưới 5 tỷ
 db.listings.find({
   listing_type: "ban",
@@ -102,4 +109,5 @@ db.listings.aggregate([
 - Các trang BĐS **thay đổi HTML thường xuyên** → selector có thể cần cập nhật
 - Đặt `HEADLESS=false` để debug xem browser đang load gì
 - Tăng `DELAY_MIN/MAX` nếu bị block IP
-- Nên chạy vào ban đêm hoặc chia nhỏ số trang để tránh bị chặn
+- **nhatot** và **chotot** dùng JSON API (nhanh, ổn định hơn)
+- **batdongsan** cần `undetected-chromedriver` để bypass Cloudflare

@@ -26,3 +26,14 @@ Thumbs.db
 *.csv
 *.json
 *.xlsx
+
+# Logs / Notes
+note.txt
+agent_run.log
+
+# Data files
+ITKHDL/
+hanoi_final.csv
+gianhahanoi.csv
+hanoi_final_filtered_features_complete.csv
+output_*.csv
