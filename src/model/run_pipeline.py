@@ -39,7 +39,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from config import DATA_PATH, MODEL_DIR, OUTPUT_DIR, LOG_TRANSFORM
 from preprocessor import load_and_prepare, build_preprocessor, get_feature_names_after_transform
-from trainer import train
+from trainer import train, train_with_tuning
 from shap_analyzer import SHAPAnalyzer
 from evaluator import evaluate_and_plot
 
@@ -176,10 +176,102 @@ def run(compare_log: bool = False, log_transform: bool = LOG_TRANSFORM):
     return results, analyzer, shap_vals
 
 
+def run_tuned(log_transform: bool = LOG_TRANSFORM):
+    """
+    Execute the full tuning + ensemble pipeline.
+    """
+    from config import TUNING_TRIALS
+
+    print("\n" + "=" * 60)
+    print("  Hyperparameter Tuning + 3-Model Ensemble Pipeline")
+    print("  (XGBoost  |  LightGBM  |  Random Forest)")
+    print("=" * 60 + "\n")
+
+    # ── Step 1-4: Tune + Ensemble ────────────────────────
+    results = train_with_tuning(
+        data_path=DATA_PATH,
+        log_transform=log_transform,
+        n_trials=TUNING_TRIALS,
+    )
+
+    pipelines    = results["pipelines"]
+    ensemble     = results["ensemble"]
+    feat_names   = results["feature_names"]
+    X_test       = results["X_test"]
+    y_test       = results["y_test"]
+    ens_metrics  = results["ensemble_test_metrics"]
+    ind_metrics  = results["individual_test_metrics"]
+
+    # ── Step 5: Evaluate & plot each model individually ────
+    print(f"\n[Pipeline] Generating evaluation plots for each model …")
+    for name, pipe in pipelines.items():
+        evaluate_and_plot(
+            pipe, X_test, y_test,
+            log_transform=log_transform,
+            model_name=name,
+        )
+
+    # ── Step 6: SHAP on best individual model ────────────
+    # Pick model with best R² on test set for SHAP
+    best_name = max(ind_metrics, key=lambda k: ind_metrics[k]["R2"])
+    best_pipe = pipelines[best_name]
+
+    print(f"\n[Pipeline] Computing SHAP values for best model: {best_name} …")
+    analyzer  = SHAPAnalyzer(best_pipe, feat_names, log_transform=log_transform)
+
+    shap_sample = X_test.iloc[:min(500, len(X_test))]
+    shap_vals   = analyzer.compute_shap_values(shap_sample)
+
+    # ── Step 7: Plots ─────────────────────────────────
+    print("[Pipeline] Generating SHAP plots …")
+
+    analyzer.plot_group_importance_summary(shap_vals,
+        save_name="shap_group_importance_summary.png")
+    analyzer.plot_group_bar(shap_vals, shap_sample,
+        save_name="shap_group_bar.png")
+    analyzer.plot_beeswarm(shap_vals, group="intrinsic",
+        save_name="shap_beeswarm_intrinsic.png")
+    analyzer.plot_beeswarm(shap_vals, group="extrinsic",
+        save_name="shap_beeswarm_extrinsic.png")
+    analyzer.plot_group_scatter(shap_vals, shap_sample,
+        save_name="shap_group_scatter.png")
+
+    for idx in [0, 50, 100]:
+        if idx < len(shap_sample):
+            analyzer.plot_waterfall(
+                shap_vals, shap_sample, sample_idx=idx,
+                title=f"SHAP Waterfall – Sample #{idx} ({best_name})",
+                save_name=f"shap_waterfall_sample{idx}.png",
+            )
+
+    # ── Step 8: Save decomposition ──────────────────────
+    decomp_df = analyzer.decompose_dataset(shap_vals, shap_sample)
+    decomp_path = os.path.join(OUTPUT_DIR, "shap_decomposition_test.csv")
+    decomp_df.to_csv(decomp_path, index=False)
+    print(f"[Pipeline] Decomposition table saved → {decomp_path}")
+
+    # ── Done ──────────────────────────────────────────
+    print("\n" + "=" * 60)
+    print("  Tuned Ensemble Pipeline completed! 🎉")
+    print("\n  Individual Test Metrics:")
+    for name, m in ind_metrics.items():
+        print(f"    {name:15s}: R²={m['R2']:.4f}  MAPE={m['MAPE_%']:.2f}%")
+    print(f"\n  Ensemble Test Metrics:")
+    print(f"    R²  : {ens_metrics['R2']:.4f}")
+    print(f"    RMSE: {ens_metrics['RMSE']:.4f}")
+    print(f"    MAPE: {ens_metrics['MAPE_%']:.2f}%")
+    print(f"\n  Best SHAP model    : {best_name}")
+    print(f"  Outputs saved in   : {OUTPUT_DIR}")
+    print("=" * 60 + "\n")
+
+    return results, analyzer, shap_vals
+
+
 # ─────────────────────────────────────────────────────────────────
 # CLI
 # ─────────────────────────────────────────────────────────────────
-
+# python src/model/run_pipeline.py --tune           # tune + ensemble
+# python src/model/run_pipeline.py                  # chạy như cũ (XGBoost only)
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Run the Unified Tree-based Model + SHAP pipeline."
@@ -194,8 +286,16 @@ if __name__ == "__main__":
         action="store_true",
         help="Use raw price as target (default: log1p transform).",
     )
+    parser.add_argument(
+        "--tune",
+        action="store_true",
+        help="Run Optuna hyperparameter tuning + 3-model ensemble (XGBoost, LightGBM, RandomForest).",
+    )
     args = parser.parse_args()
 
     use_log = not args.no_log    # default True unless --no-log flag
 
-    run(compare_log=args.compare_log_transform, log_transform=use_log)
+    if args.tune:
+        run_tuned(log_transform=use_log)
+    else:
+        run(compare_log=args.compare_log_transform, log_transform=use_log)

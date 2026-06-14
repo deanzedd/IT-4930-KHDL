@@ -102,3 +102,50 @@ CATBOOST_PARAMS = {
     "verbose"        : 0,
     "allow_writing_files": False,
 }
+
+# ─────────────────────────────────────────────
+# LightGBM hyperparameters (baseline)
+# ─────────────────────────────────────────────
+LGB_PARAMS = {
+    "n_estimators"     : 500,
+    "max_depth"        : 6,
+    "learning_rate"    : 0.05,
+    "num_leaves"       : 63,
+    "subsample"        : 0.8,
+    "colsample_bytree" : 0.8,
+    "min_child_samples": 10,
+    "reg_alpha"        : 0.1,
+    "reg_lambda"       : 1.0,
+    "random_state"     : RANDOM_STATE,
+    "n_jobs"           : -1,
+    "verbosity"        : -1,
+}
+
+# ─────────────────────────────────────────────
+# Random Forest hyperparameters (baseline)
+# ─────────────────────────────────────────────
+RF_PARAMS = {
+    "n_estimators"    : 300,
+    "max_depth"       : 12,
+    "min_samples_split": 4,
+    "min_samples_leaf" : 2,
+    "max_features"    : "sqrt",
+    "random_state"    : RANDOM_STATE,
+    "n_jobs"          : -1,
+}
+
+# ─────────────────────────────────────────────
+# Optuna Tuning settings
+# ─────────────────────────────────────────────
+TUNING_TRIALS   = 100       # trials per model (Bayesian optimization)
+TUNING_CV_FOLDS = 3         # folds during tuning (faster than full CV)
+
+# ─────────────────────────────────────────────
+# Ensemble settings
+# ─────────────────────────────────────────────
+# Initial equal weights — will be optimized on validation set
+ENSEMBLE_WEIGHTS = {
+    "XGBoost"      : 1 / 3,
+    "LightGBM"     : 1 / 3,
+    "RandomForest" : 1 / 3,
+}

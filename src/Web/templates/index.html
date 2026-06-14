@@ -1,0 +1,774 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dự Đoán Giá Nhà Hà Nội — AI Model</title>
+  <meta name="description" content="Công cụ dự đoán giá bất động sản Hà Nội sử dụng mô hình XGBoost được huấn luyện trên dữ liệu thực tế." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    /* ── Reset & Base ─────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg-dark:       #0a0e1a;
+      --bg-card:       #111827;
+      --bg-card2:      #1a2235;
+      --border:        rgba(99, 120, 255, 0.18);
+      --accent:        #6366f1;
+      --accent2:       #818cf8;
+      --accent-glow:   rgba(99, 102, 241, 0.35);
+      --green:         #10b981;
+      --green-light:   #34d399;
+      --amber:         #f59e0b;
+      --text-primary:  #f1f5f9;
+      --text-secondary:#94a3b8;
+      --text-muted:    #475569;
+      --radius:        14px;
+      --radius-sm:     8px;
+      --shadow:        0 4px 32px rgba(0,0,0,0.5);
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg-dark);
+      color: var(--text-primary);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── Background mesh ─────────────────────────────────── */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 80% 60% at 10% 5%, rgba(99,102,241,0.12) 0%, transparent 60%),
+        radial-gradient(ellipse 60% 50% at 90% 90%, rgba(16,185,129,0.08) 0%, transparent 55%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ── Layout ──────────────────────────────────────────── */
+    .page-wrap {
+      position: relative;
+      z-index: 1;
+      max-width: 1140px;
+      margin: 0 auto;
+      padding: 0 20px 60px;
+    }
+
+    /* ── Header ──────────────────────────────────────────── */
+    header {
+      text-align: center;
+      padding: 56px 0 40px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(99,102,241,0.15);
+      border: 1px solid var(--border);
+      color: var(--accent2);
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      padding: 5px 14px;
+      border-radius: 100px;
+      margin-bottom: 20px;
+    }
+
+    header h1 {
+      font-size: clamp(28px, 5vw, 48px);
+      font-weight: 800;
+      line-height: 1.15;
+      background: linear-gradient(135deg, #e2e8f0 0%, var(--accent2) 50%, var(--green-light) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 12px;
+    }
+
+    header p {
+      color: var(--text-secondary);
+      font-size: 16px;
+      max-width: 520px;
+      margin: 0 auto;
+      line-height: 1.6;
+    }
+
+    /* ── Main grid ───────────────────────────────────────── */
+    .main-grid {
+      display: grid;
+      grid-template-columns: 1fr 380px;
+      gap: 24px;
+      align-items: start;
+    }
+
+    @media (max-width: 900px) {
+      .main-grid { grid-template-columns: 1fr; }
+    }
+
+    /* ── Cards ───────────────────────────────────────────── */
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 28px;
+      box-shadow: var(--shadow);
+    }
+
+    .card-title {
+      font-size: 13px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .1em;
+      color: var(--accent2);
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .card-title::before {
+      content: '';
+      width: 3px;
+      height: 16px;
+      border-radius: 2px;
+      background: var(--accent);
+      display: block;
+    }
+
+    /* ── Section divider ─────────────────────────────────── */
+    .section-sep {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin: 24px 0 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .section-sep::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+
+    /* ── Form grid ───────────────────────────────────────── */
+    .form-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    .form-grid .full { grid-column: 1 / -1; }
+
+    @media (max-width: 600px) {
+      .form-grid { grid-template-columns: 1fr; }
+    }
+
+    /* ── Field ───────────────────────────────────────────── */
+    .field label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      margin-bottom: 6px;
+      letter-spacing: .04em;
+    }
+
+    .field input,
+    .field select {
+      width: 100%;
+      background: var(--bg-card2);
+      border: 1px solid rgba(99,120,255,0.2);
+      border-radius: var(--radius-sm);
+      color: var(--text-primary);
+      font-family: inherit;
+      font-size: 14px;
+      padding: 10px 14px;
+      outline: none;
+      transition: border-color .2s, box-shadow .2s;
+      appearance: none;
+    }
+
+    .field select {
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='7' viewBox='0 0 12 7'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2394a3b8' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 12px center;
+      padding-right: 36px;
+      cursor: pointer;
+    }
+
+    .field input:focus,
+    .field select:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-glow);
+    }
+
+    .field input::placeholder { color: var(--text-muted); }
+
+    /* ── Toggle (is_pho_co) ──────────────────────────────── */
+    .toggle-wrap {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: var(--bg-card2);
+      border: 1px solid rgba(99,120,255,0.2);
+      border-radius: var(--radius-sm);
+      padding: 10px 14px;
+    }
+
+    .toggle-wrap span { font-size: 14px; color: var(--text-secondary); flex: 1; }
+
+    .toggle {
+      position: relative;
+      width: 42px;
+      height: 24px;
+      flex-shrink: 0;
+    }
+
+    .toggle input { opacity: 0; width: 0; height: 0; }
+
+    .slider {
+      position: absolute;
+      inset: 0;
+      background: var(--bg-dark);
+      border: 1px solid rgba(99,120,255,0.3);
+      border-radius: 100px;
+      cursor: pointer;
+      transition: background .3s;
+    }
+
+    .slider::before {
+      content: '';
+      position: absolute;
+      width: 16px;
+      height: 16px;
+      left: 3px;
+      top: 3px;
+      background: var(--text-muted);
+      border-radius: 50%;
+      transition: transform .3s, background .3s;
+    }
+
+    .toggle input:checked + .slider { background: var(--accent); border-color: var(--accent); }
+    .toggle input:checked + .slider::before {
+      transform: translateX(18px);
+      background: white;
+    }
+
+    /* ── Submit button ───────────────────────────────────── */
+    .btn-predict {
+      width: 100%;
+      margin-top: 28px;
+      padding: 14px;
+      background: linear-gradient(135deg, var(--accent) 0%, #4f46e5 100%);
+      color: white;
+      font-family: inherit;
+      font-size: 15px;
+      font-weight: 700;
+      border: none;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      letter-spacing: .04em;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: transform .15s, box-shadow .15s, opacity .15s;
+      box-shadow: 0 4px 20px rgba(99,102,241,0.4);
+    }
+
+    .btn-predict:hover { transform: translateY(-2px); box-shadow: 0 8px 28px rgba(99,102,241,0.55); }
+    .btn-predict:active { transform: translateY(0); }
+    .btn-predict:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+
+    /* ── Right panel ─────────────────────────────────────── */
+    .right-panel { display: flex; flex-direction: column; gap: 20px; }
+
+    /* ── Result card ─────────────────────────────────────── */
+    .result-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 28px;
+      box-shadow: var(--shadow);
+      text-align: center;
+      min-height: 220px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .result-card::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(ellipse at 50% 0%, rgba(16,185,129,0.08) 0%, transparent 70%);
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity .4s;
+    }
+
+    .result-card.has-result::before { opacity: 1; }
+
+    .result-placeholder {
+      color: var(--text-muted);
+      font-size: 14px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .result-placeholder svg { opacity: .35; }
+
+    .result-content { display: none; width: 100%; }
+    .result-card.has-result .result-content { display: block; }
+    .result-card.has-result .result-placeholder { display: none; }
+
+    .result-label {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      color: var(--green);
+      margin-bottom: 8px;
+    }
+
+    .result-price {
+      font-size: clamp(32px, 6vw, 44px);
+      font-weight: 800;
+      color: var(--text-primary);
+      line-height: 1;
+      margin-bottom: 4px;
+    }
+
+    .result-unit {
+      font-size: 14px;
+      color: var(--green-light);
+      font-weight: 600;
+      margin-bottom: 16px;
+    }
+
+    .result-range {
+      background: rgba(16,185,129,0.08);
+      border: 1px solid rgba(16,185,129,0.2);
+      border-radius: var(--radius-sm);
+      padding: 10px 16px;
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+
+    .result-range strong { color: var(--green-light); }
+
+    /* ── Loader ──────────────────────────────────────────── */
+    .loader {
+      display: none;
+      width: 36px;
+      height: 36px;
+      border: 3px solid rgba(99,102,241,0.2);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin .8s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .result-card.loading .loader { display: block; }
+    .result-card.loading .result-placeholder,
+    .result-card.loading .result-content { display: none !important; }
+
+    /* ── Error ───────────────────────────────────────────── */
+    .error-msg {
+      display: none;
+      background: rgba(239,68,68,0.1);
+      border: 1px solid rgba(239,68,68,0.3);
+      border-radius: var(--radius-sm);
+      padding: 12px 16px;
+      font-size: 13px;
+      color: #fca5a5;
+      margin-top: 16px;
+      text-align: left;
+    }
+
+    /* ── Info card ───────────────────────────────────────── */
+    .info-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+      box-shadow: var(--shadow);
+    }
+
+    .info-card h3 {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      color: var(--accent2);
+      margin-bottom: 14px;
+    }
+
+    .stat-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 0;
+      border-bottom: 1px solid rgba(99,120,255,0.08);
+      font-size: 13px;
+    }
+
+    .stat-row:last-child { border-bottom: none; }
+    .stat-row .key { color: var(--text-secondary); }
+    .stat-row .val { font-weight: 600; color: var(--text-primary); }
+
+    /* ── Tips card ───────────────────────────────────────── */
+    .tip-item {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      padding: 8px 0;
+      font-size: 13px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
+
+    .tip-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      margin-top: 6px;
+      flex-shrink: 0;
+    }
+
+    /* ── Footer ──────────────────────────────────────────── */
+    footer {
+      text-align: center;
+      margin-top: 48px;
+      padding-top: 24px;
+      border-top: 1px solid var(--border);
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    /* ── Animate in ──────────────────────────────────────── */
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(20px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .card, .result-card, .info-card {
+      animation: fadeUp .5s ease both;
+    }
+
+    .result-card { animation-delay: .1s; }
+    .info-card   { animation-delay: .15s; }
+  </style>
+</head>
+<body>
+<div class="page-wrap">
+
+  <!-- Header -->
+  <header>
+    <div class="badge">
+      <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
+        <circle cx="5" cy="5" r="5" fill="#6366f1"/>
+      </svg>
+      AI · XGBoost Model
+    </div>
+    <h1>Dự Đoán Giá Nhà Hà Nội</h1>
+    <p>Nhập thông tin bất động sản để nhận dự đoán giá từ mô hình Machine Learning.</p>
+  </header>
+
+  <!-- Main grid -->
+  <div class="main-grid">
+
+    <!-- ── LEFT: Form ── -->
+    <div class="card">
+
+      <div class="card-title">Thông tin bất động sản</div>
+
+      <form id="predictForm" autocomplete="off">
+
+        <!-- Intrinsic -->
+        <div class="section-sep">🏠 Đặc điểm vật lý (Intrinsic)</div>
+
+        <div class="form-grid">
+
+          <div class="field">
+            <label for="property_type">Loại hình BĐS</label>
+            <select id="property_type" name="property_type" required>
+              {% for pt in property_types %}
+              <option value="{{ pt }}">
+                {% if pt == 'nha_mat_pho' %}Nhà mặt phố
+                {% elif pt == 'nha_pho' %}Nhà phố
+                {% elif pt == 'nha' %}Nhà ở
+                {% elif pt == 'can_ho' %}Căn hộ
+                {% elif pt == 'biet_thu' %}Biệt thự
+                {% elif pt == 'dat' %}Đất
+                {% elif pt == 'chung_cu' %}Chung cư
+                {% else %}Khác{% endif %}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="area">Diện tích (m²)</label>
+            <input id="area" name="area" type="number" min="5" max="5000" step="0.5" value="60" placeholder="vd: 60" required />
+          </div>
+
+          <div class="field">
+            <label for="bedrooms_detail">Số phòng ngủ</label>
+            <input id="bedrooms_detail" name="bedrooms_detail" type="number" min="0" max="20" step="1" value="2" required />
+          </div>
+
+          <div class="field">
+            <label for="bathrooms_detail">Số phòng tắm</label>
+            <input id="bathrooms_detail" name="bathrooms_detail" type="number" min="0" max="20" step="1" value="2" required />
+          </div>
+
+          <div class="field">
+            <label for="floors">Số tầng</label>
+            <input id="floors" name="floors" type="number" min="1" max="30" step="1" value="3" required />
+          </div>
+
+          <div class="field">
+            <label for="width_m">Chiều rộng mặt tiền (m)</label>
+            <input id="width_m" name="width_m" type="number" min="1" max="50" step="0.1" value="4" required />
+          </div>
+
+          <div class="field">
+            <label for="depth_m">Chiều sâu (m)</label>
+            <input id="depth_m" name="depth_m" type="number" min="1" max="200" step="0.1" value="15" required />
+          </div>
+
+        </div>
+
+        <!-- Extrinsic -->
+        <div class="section-sep">📍 Vị trí & Tiện ích (Extrinsic)</div>
+
+        <div class="form-grid">
+
+          <div class="field full">
+            <label for="district">Quận / Huyện</label>
+            <select id="district" name="district" required>
+              {% for d in districts %}
+              <option value="{{ d }}">{{ d }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="field full">
+            <label>Phố cổ Hà Nội</label>
+            <div class="toggle-wrap">
+              <span>Bất động sản nằm trong khu phố cổ?</span>
+              <label class="toggle">
+                <input type="checkbox" id="is_pho_co" name="is_pho_co" />
+                <span class="slider"></span>
+              </label>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="dist_hoan_kiem_km">Khoảng cách Hoàn Kiếm (km)</label>
+            <input id="dist_hoan_kiem_km" name="dist_hoan_kiem_km" type="number" min="0" max="50" step="0.1" value="5" required />
+          </div>
+
+          <div class="field">
+            <label for="dist_hospital_nearest_km">Khoảng cách BV gần nhất (km)</label>
+            <input id="dist_hospital_nearest_km" name="dist_hospital_nearest_km" type="number" min="0" max="20" step="0.1" value="1" required />
+          </div>
+
+          <div class="field">
+            <label for="hospital_count_2km">Số bệnh viện trong 2km</label>
+            <input id="hospital_count_2km" name="hospital_count_2km" type="number" min="0" max="20" step="1" value="2" required />
+          </div>
+
+          <div class="field">
+            <label for="dist_university_nearest_km">Khoảng cách ĐH gần nhất (km)</label>
+            <input id="dist_university_nearest_km" name="dist_university_nearest_km" type="number" min="0" max="20" step="0.1" value="2" required />
+          </div>
+
+          <div class="field">
+            <label for="university_count_2km">Số trường ĐH trong 2km</label>
+            <input id="university_count_2km" name="university_count_2km" type="number" min="0" max="20" step="1" value="1" required />
+          </div>
+
+          <div class="field">
+            <label for="dist_mall_nearest_km">Khoảng cách TTTM gần nhất (km)</label>
+            <input id="dist_mall_nearest_km" name="dist_mall_nearest_km" type="number" min="0" max="20" step="0.1" value="2" required />
+          </div>
+
+          <div class="field">
+            <label for="mall_count_2km">Số TTTM trong 2km</label>
+            <input id="mall_count_2km" name="mall_count_2km" type="number" min="0" max="20" step="1" value="1" required />
+          </div>
+
+          <div class="field">
+            <label for="dist_lake_nearest_km">Khoảng cách hồ gần nhất (km)</label>
+            <input id="dist_lake_nearest_km" name="dist_lake_nearest_km" type="number" min="0" max="20" step="0.1" value="1" required />
+          </div>
+
+          <div class="field">
+            <label for="lake_count_2km">Số hồ trong 2km</label>
+            <input id="lake_count_2km" name="lake_count_2km" type="number" min="0" max="20" step="1" value="2" required />
+          </div>
+
+        </div>
+
+        <button type="submit" class="btn-predict" id="submitBtn">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+          </svg>
+          Dự Đoán Giá
+        </button>
+
+        <div class="error-msg" id="errorMsg"></div>
+
+      </form>
+    </div>
+
+    <!-- ── RIGHT: Results + Info ── -->
+    <div class="right-panel">
+
+      <!-- Result card -->
+      <div class="result-card" id="resultCard">
+        <div class="loader" id="loader"></div>
+        <div class="result-placeholder">
+          <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+            <rect x="8" y="24" width="8" height="16" rx="2" fill="#6366f1" opacity=".4"/>
+            <rect x="20" y="16" width="8" height="24" rx="2" fill="#6366f1" opacity=".6"/>
+            <rect x="32" y="8" width="8" height="32" rx="2" fill="#6366f1"/>
+          </svg>
+          <span>Nhập thông tin và nhấn<br/><strong style="color:#94a3b8">Dự Đoán Giá</strong></span>
+        </div>
+        <div class="result-content" id="resultContent">
+          <div class="result-label">💰 Giá ước tính</div>
+          <div class="result-price" id="priceMain">—</div>
+          <div class="result-unit">tỷ đồng</div>
+          <div class="result-range" id="priceRange"></div>
+        </div>
+      </div>
+
+      <!-- Model info card -->
+      <div class="info-card">
+        <h3>📊 Thông tin mô hình</h3>
+        <div class="stat-row">
+          <span class="key">Algorithm</span>
+          <span class="val">XGBoost</span>
+        </div>
+        <div class="stat-row">
+          <span class="key">R² (test set)</span>
+          <span class="val" style="color: #34d399">0.7235</span>
+        </div>
+        <div class="stat-row">
+          <span class="key">MAPE</span>
+          <span class="val" style="color: #fbbf24">24.47%</span>
+        </div>
+        <div class="stat-row">
+          <span class="key">Dữ liệu</span>
+          <span class="val">3,827 BĐS Hà Nội</span>
+        </div>
+        <div class="stat-row">
+          <span class="key">Features</span>
+          <span class="val">18 thuộc tính</span>
+        </div>
+      </div>
+
+      <!-- Tips card -->
+      <div class="info-card">
+        <h3>💡 Lưu ý khi sử dụng</h3>
+        <div class="tip-item"><div class="tip-dot"></div>Dự đoán ±15% là khoảng tin cậy hợp lý.</div>
+        <div class="tip-item"><div class="tip-dot"></div>Mô hình huấn luyện trên dữ liệu Hà Nội; kết quả tốt nhất trong nội thành.</div>
+        <div class="tip-item"><div class="tip-dot"></div>Nhà phố cổ / mặt phố thường được định giá cao hơn.</div>
+        <div class="tip-item"><div class="tip-dot"></div>Khoảng cách Hoàn Kiếm là yếu tố ảnh hưởng lớn nhất.</div>
+      </div>
+
+    </div><!-- /right-panel -->
+  </div><!-- /main-grid -->
+
+  <footer>
+    Built with XGBoost · Flask · Vanilla JS &nbsp;·&nbsp; Dữ liệu BĐS Hà Nội
+  </footer>
+</div><!-- /page-wrap -->
+
+<script>
+  const form       = document.getElementById('predictForm');
+  const resultCard = document.getElementById('resultCard');
+  const priceMain  = document.getElementById('priceMain');
+  const priceRange = document.getElementById('priceRange');
+  const loader     = document.getElementById('loader');
+  const submitBtn  = document.getElementById('submitBtn');
+  const errorMsg   = document.getElementById('errorMsg');
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    errorMsg.style.display = 'none';
+
+    // Loading state
+    resultCard.className = 'result-card loading';
+    submitBtn.disabled = true;
+
+    const data = {
+      area               : parseFloat(document.getElementById('area').value),
+      property_type      : document.getElementById('property_type').value,
+      bedrooms_detail    : parseInt(document.getElementById('bedrooms_detail').value),
+      bathrooms_detail   : parseInt(document.getElementById('bathrooms_detail').value),
+      floors             : parseInt(document.getElementById('floors').value),
+      width_m            : parseFloat(document.getElementById('width_m').value),
+      depth_m            : parseFloat(document.getElementById('depth_m').value),
+      district           : document.getElementById('district').value,
+      is_pho_co          : document.getElementById('is_pho_co').checked ? 1 : 0,
+      dist_hoan_kiem_km         : parseFloat(document.getElementById('dist_hoan_kiem_km').value),
+      dist_hospital_nearest_km  : parseFloat(document.getElementById('dist_hospital_nearest_km').value),
+      hospital_count_2km        : parseInt(document.getElementById('hospital_count_2km').value),
+      dist_university_nearest_km: parseFloat(document.getElementById('dist_university_nearest_km').value),
+      university_count_2km      : parseInt(document.getElementById('university_count_2km').value),
+      dist_mall_nearest_km      : parseFloat(document.getElementById('dist_mall_nearest_km').value),
+      mall_count_2km            : parseInt(document.getElementById('mall_count_2km').value),
+      dist_lake_nearest_km      : parseFloat(document.getElementById('dist_lake_nearest_km').value),
+      lake_count_2km            : parseInt(document.getElementById('lake_count_2km').value),
+    };
+
+    try {
+      const res  = await fetch('/predict', {
+        method : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body   : JSON.stringify(data),
+      });
+      const json = await res.json();
+
+      if (!json.success) throw new Error(json.error || 'Lỗi không xác định');
+
+      priceMain.textContent = json.price.toLocaleString('vi-VN');
+      priceRange.innerHTML  =
+        `Khoảng dao động: <strong>${json.price_low.toLocaleString('vi-VN')}</strong> — <strong>${json.price_high.toLocaleString('vi-VN')}</strong> tỷ đồng`;
+
+      resultCard.className = 'result-card has-result';
+
+    } catch (err) {
+      resultCard.className = 'result-card';
+      errorMsg.textContent = '⚠️ ' + err.message;
+      errorMsg.style.display = 'block';
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+</script>
+</body>
+</html>

@@ -39,9 +39,9 @@ except ImportError:
 
 from config import (
     DATA_PATH, MODEL_DIR, OUTPUT_DIR,
-    XGB_PARAMS, CATBOOST_PARAMS,
+    XGB_PARAMS, CATBOOST_PARAMS, LGB_PARAMS, RF_PARAMS,
     RANDOM_STATE, TEST_SIZE, CV_FOLDS, LOG_TRANSFORM,
-    CATEGORICAL_FEATURES,
+    CATEGORICAL_FEATURES, TUNING_TRIALS,
 )
 from preprocessor import build_preprocessor, load_and_prepare, get_feature_names_after_transform
 
@@ -77,17 +77,30 @@ def compute_metrics(y_true: np.ndarray, y_pred: np.ndarray,
 # Build model pipelines
 # ─────────────────────────────────────────────────────────────
 
-def build_xgb_pipeline(preprocessor):
-    model = XGBRegressor(**XGB_PARAMS)
+def build_xgb_pipeline(preprocessor, params=None):
+    from xgboost import XGBRegressor
+    model = XGBRegressor(**(params or XGB_PARAMS))
     return Pipeline([("preprocessor", preprocessor), ("model", model)])
 
 
-def build_catboost_pipeline(preprocessor):
+def build_lgb_pipeline(preprocessor, params=None):
+    from lightgbm import LGBMRegressor
+    model = LGBMRegressor(**(params or LGB_PARAMS))
+    return Pipeline([("preprocessor", preprocessor), ("model", model)])
+
+
+def build_rf_pipeline(preprocessor, params=None):
+    from sklearn.ensemble import RandomForestRegressor
+    model = RandomForestRegressor(**(params or RF_PARAMS))
+    return Pipeline([("preprocessor", preprocessor), ("model", model)])
+
+
+def build_catboost_pipeline(preprocessor, params=None):
     """
     CatBoost natively handles categoricals, but inside a sklearn Pipeline
     the preprocessor already OrdinalEncodes them, so cat_features is empty here.
     """
-    model = CatBoostRegressor(**CATBOOST_PARAMS)
+    model = CatBoostRegressor(**(params or CATBOOST_PARAMS))
     return Pipeline([("preprocessor", preprocessor), ("model", model)])
 
 
@@ -243,6 +256,215 @@ def _save_cv_report(cv_results: dict, test_metrics: dict,
         f.write("\n── Test Set Metrics ──\n")
         for k, v in test_metrics.items():
             f.write(f"  {k}: {v:.4f}\n")
+
+    print(f"[Trainer] Report saved → {report_path}")
+
+
+# ─────────────────────────────────────────────
+# Tuned ensemble training entry point
+# ─────────────────────────────────────────────
+
+def train_with_tuning(
+    data_path    : str  = DATA_PATH,
+    log_transform: bool = LOG_TRANSFORM,
+    n_trials     : int  = TUNING_TRIALS,
+) -> dict:
+    """
+    Full pipeline with Optuna tuning + 3-model weighted ensemble.
+
+    Steps
+    -----
+    1. Load data, train/val/test split  (70% train, 10% val, 20% test)
+    2. Tune XGBoost, LightGBM, RandomForest (Bayesian, n_trials each)
+    3. Refit each model on train set with best params
+    4. Optimise ensemble weights on val set
+    5. Evaluate ensemble on test set
+    6. Save all pipelines + report
+
+    Returns
+    -------
+    dict with best individual pipelines, ensemble model, metrics, etc.
+    """
+    from tuner import tune_model
+    from ensemble import EnsembleModel
+
+    # ── 1. Load & split ─────────────────────────────────────
+    X, y, y_raw = load_and_prepare(data_path, log_transform=log_transform)
+
+    # First split: 80% train+val | 20% test
+    X_trainval, X_test, y_trainval, y_test = train_test_split(
+        X, y, test_size=TEST_SIZE, random_state=RANDOM_STATE
+    )
+    # Second split: 87.5% train | 12.5% val  => ~70% / 10% of total
+    X_train, X_val, y_train, y_val = train_test_split(
+        X_trainval, y_trainval, test_size=0.125, random_state=RANDOM_STATE
+    )
+    print(f"[Trainer] Train={len(X_train):,}  Val={len(X_val):,}  Test={len(X_test):,}\n")
+
+    # ── 2. Tune each model ─────────────────────────────────
+    model_configs = [
+        ("XGBoost",       build_xgb_pipeline),
+        ("LightGBM",      build_lgb_pipeline),
+        ("RandomForest",  build_rf_pipeline),
+    ]
+
+    print("=" * 60)
+    print(f"Optuna Tuning ({n_trials} trials/model) — log_transform={log_transform}")
+    print("=" * 60)
+
+    best_params_all = {}
+    for name, _ in model_configs:
+        best_params, _ = tune_model(
+            name, X_train, y_train,
+            log_transform=log_transform,
+            n_trials=n_trials,
+        )
+        best_params_all[name] = best_params
+
+    # ── 3. Refit each model on FULL train set ─────────────────
+    print("\n" + "=" * 60)
+    print("Refitting tuned models on train set …")
+    print("=" * 60)
+
+    fitted_pipelines = {}
+    cv_results = {}
+
+    builder_map = {
+        "XGBoost"      : build_xgb_pipeline,
+        "LightGBM"     : build_lgb_pipeline,
+        "RandomForest" : build_rf_pipeline,
+    }
+
+    for name, builder in model_configs:
+        params = best_params_all[name]
+        pipe   = builder(build_preprocessor(), params)
+        pipe.fit(X_train, y_train)
+        fitted_pipelines[name] = pipe
+
+        # Quick CV on train set for reporting
+        print(f"\n[{name}] Running {CV_FOLDS}-fold CV on train set …")
+        cv_pipe = builder(build_preprocessor(), params)
+        cv_metrics = cross_validate_model(cv_pipe, X_train, y_train, log_transform, name)
+        cv_results[name] = cv_metrics
+
+    # ── 4. Optimise ensemble weights on val set ──────────────
+    print("\n" + "=" * 60)
+    print("Optimising ensemble weights on validation set …")
+    print("=" * 60)
+
+    ensemble = EnsembleModel(fitted_pipelines)
+    ensemble.fit_weights(X_val, y_val, log_transform=log_transform)
+
+    # ── 5. Evaluate on test set ───────────────────────────
+    print("\n" + "=" * 60)
+    print("Test Set Evaluation")
+    print("=" * 60)
+
+    # Individual model test metrics
+    individual_test_metrics = {}
+    for name, pipe in fitted_pipelines.items():
+        y_pred = pipe.predict(X_test)
+        m = compute_metrics(y_test, y_pred, log_transform)
+        individual_test_metrics[name] = m
+        print(f"  [{name}] RMSE={m['RMSE']:.4f} | R²={m['R2']:.4f} | MAPE={m['MAPE_%']:.2f}%")
+
+    # Ensemble test metrics
+    y_pred_ens = ensemble.predict(X_test)
+    ensemble_test_metrics = compute_metrics(y_test, y_pred_ens, log_transform)
+    print(f"\n  [Ensemble] RMSE={ensemble_test_metrics['RMSE']:.4f} | "
+          f"R²={ensemble_test_metrics['R2']:.4f} | "
+          f"MAPE={ensemble_test_metrics['MAPE_%']:.2f}%")
+
+    # ── 6. Save all artifacts ────────────────────────────
+    for name, pipe in fitted_pipelines.items():
+        path = os.path.join(MODEL_DIR, f"{name.lower()}_tuned_pipeline.pkl")
+        joblib.dump(pipe, path)
+        print(f"[Trainer] Saved → {path}")
+
+    ensemble_path = os.path.join(MODEL_DIR, "ensemble_model.pkl")
+    joblib.dump(ensemble, ensemble_path)
+    print(f"[Trainer] Saved → {ensemble_path}")
+
+    # Save extended report
+    _save_ensemble_report(
+        cv_results, individual_test_metrics, ensemble_test_metrics,
+        ensemble.get_weights_dict(), best_params_all, log_transform
+    )
+
+    # Extract feature names from one of the fitted pipelines
+    fitted_preprocessor = list(fitted_pipelines.values())[0].named_steps["preprocessor"]
+    feature_names = get_feature_names_after_transform(fitted_preprocessor)
+
+    return {
+        "pipelines"              : fitted_pipelines,
+        "ensemble"               : ensemble,
+        "feature_names"          : feature_names,
+        "X_train"                : X_train,
+        "X_val"                  : X_val,
+        "X_test"                 : X_test,
+        "y_train"                : y_train,
+        "y_val"                  : y_val,
+        "y_test"                 : y_test,
+        "cv_results"             : cv_results,
+        "individual_test_metrics": individual_test_metrics,
+        "ensemble_test_metrics"  : ensemble_test_metrics,
+        "best_params"            : best_params_all,
+        "log_transform"          : log_transform,
+    }
+
+
+def _save_ensemble_report(
+    cv_results: dict,
+    individual_test_metrics: dict,
+    ensemble_test_metrics: dict,
+    weights: dict,
+    best_params: dict,
+    log_transform: bool,
+):
+    report_path = os.path.join(OUTPUT_DIR, "evaluation_report.txt")
+    sep = "=" * 60
+    with open(report_path, "w", encoding="utf-8") as f:
+        f.write(sep + "\n")
+        f.write("Tuned Ensemble Model — Evaluation Report\n")
+        f.write(sep + "\n\n")
+        f.write(f"Log-transform target : {log_transform}\n")
+        f.write(f"Models               : {', '.join(cv_results.keys())}\n\n")
+
+        f.write("─" * 60 + "\n")
+        f.write("── Cross-Validation Results (tuned params, train set) ──\n")
+        f.write("─" * 60 + "\n")
+        for name, m in cv_results.items():
+            f.write(f"\n  {name}:\n")
+            for k, v in m.items():
+                f.write(f"    {k}: {v:.4f}\n")
+
+        f.write("\n" + "─" * 60 + "\n")
+        f.write("── Individual Test Set Metrics ──\n")
+        f.write("─" * 60 + "\n")
+        for name, m in individual_test_metrics.items():
+            f.write(f"\n  {name}:\n")
+            for k, v in m.items():
+                f.write(f"    {k}: {v:.4f}\n")
+
+        f.write("\n" + "─" * 60 + "\n")
+        f.write("── Ensemble Test Set Metrics ──\n")
+        f.write("─" * 60 + "\n")
+        for k, v in ensemble_test_metrics.items():
+            f.write(f"  {k}: {v:.4f}\n")
+
+        f.write("\n" + "─" * 60 + "\n")
+        f.write("── Ensemble Weights ──\n")
+        f.write("─" * 60 + "\n")
+        for name, w in weights.items():
+            f.write(f"  {name}: {w:.4f}\n")
+
+        f.write("\n" + "─" * 60 + "\n")
+        f.write("── Best Hyperparameters ──\n")
+        f.write("─" * 60 + "\n")
+        for name, params in best_params.items():
+            f.write(f"\n  {name}:\n")
+            for k, v in params.items():
+                f.write(f"    {k}: {v}\n")
 
     print(f"[Trainer] Report saved → {report_path}")
 

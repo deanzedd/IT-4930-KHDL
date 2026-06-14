@@ -7,3 +7,5 @@ ITKHDL/
 hanoi_final.csv
 gianhahanoi.csv
 hanoi_final_filtered_features_complete.csv
+outputs/
+saved_models/
